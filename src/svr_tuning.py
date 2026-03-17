@@ -314,3 +314,319 @@ def plot_cv_heatmap(grid_search: GridSearchCV) -> None:
         )
 
         im = ax.imshow(pivot.values, aspect="auto",
+                       cmap="RdYlGn_r", vmin=vmin, vmax=vmax)
+
+        ax.set_xticks(range(len(pivot.columns)))
+        ax.set_xticklabels([str(g) for g in pivot.columns], fontsize=9)
+        ax.set_yticks(range(len(pivot.index)))
+        ax.set_yticklabels([str(c) for c in pivot.index], fontsize=9)
+        ax.set_xlabel("gamma", fontsize=10)
+        ax.set_ylabel("C", fontsize=10)
+        ax.set_title(f"epsilon = {eps}", fontsize=11, fontweight="bold")
+
+        # Annotate cells
+        for i in range(pivot.shape[0]):
+            for j in range(pivot.shape[1]):
+                val = pivot.values[i, j]
+                ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                        fontsize=8, color="black")
+
+    plt.colorbar(im, ax=axes[-1], label="Mean CV RMSE (t/ha)")
+    plt.tight_layout()
+
+    path = RESULTS_DIR / "svr_gridsearch_heatmap.png"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"  📊  Heatmap saved → '{path}'")
+    plt.close()
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 5 — COMPARISON PLOT
+# ──────────────────────────────────────────────────────────
+
+def plot_comparison(
+    default_result: dict,
+    tuned_result: dict,
+    y_test: pd.Series,
+    plot_n: int,
+) -> None:
+    """
+    Side-by-side Predicted vs Actual scatter for Default vs Tuned RBF.
+    Also adds a bar chart comparing MAE and RMSE.
+    """
+    _sec("STEP 5 — COMPARISON PLOT: DEFAULT vs TUNED RBF")
+
+    rng    = np.random.RandomState(42)
+    idx    = rng.choice(len(y_test), size=min(plot_n, len(y_test)), replace=False)
+    y_samp = np.array(y_test)[idx]
+
+    fig = plt.figure(figsize=(18, 10))
+    fig.suptitle("Default RBF  vs  Tuned RBF — Crop Yield Prediction",
+                 fontsize=15, fontweight="bold")
+    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35)
+
+    color_default = "#4C72B0"
+    color_tuned   = "#55A868"
+
+    for col_idx, result in enumerate([default_result, tuned_result]):
+        color  = color_default if col_idx == 0 else color_tuned
+        y_pred = result["y_pred"][idx]
+
+        # -- Predicted vs Actual --
+        ax = fig.add_subplot(gs[0, col_idx])
+        ax.scatter(y_samp, y_pred, alpha=0.4, s=18,
+                   color=color, edgecolors="none")
+        lims = [
+            min(y_samp.min(), y_pred.min()) - 0.5,
+            max(y_samp.max(), y_pred.max()) + 0.5,
+        ]
+        ax.plot(lims, lims, "k--", lw=1.2)
+        ax.set_xlim(lims); ax.set_ylim(lims)
+        ax.set_xlabel("Actual yield (t/ha)", fontsize=10)
+        ax.set_ylabel("Predicted yield (t/ha)", fontsize=10)
+        ax.set_title(
+            f"{result['label']}\nMAE={result['mae']:.3f}  "
+            f"RMSE={result['rmse']:.3f}",
+            fontsize=11, fontweight="bold"
+        )
+        ax.grid(True, linestyle="--", alpha=0.35)
+
+        # -- Residuals --
+        ax_res = fig.add_subplot(gs[1, col_idx])
+        residuals = y_samp - y_pred
+        ax_res.scatter(y_pred, residuals, alpha=0.4, s=18,
+                       color=color, edgecolors="none")
+        ax_res.axhline(0, color="k", lw=1.2, linestyle="--")
+        ax_res.set_xlabel("Fitted values", fontsize=10)
+        ax_res.set_ylabel("Residuals (t/ha)", fontsize=10)
+        ax_res.set_title(f"Residuals — {result['label']}",
+                         fontsize=11, fontweight="bold")
+        ax_res.grid(True, linestyle="--", alpha=0.35)
+
+    # -- Metric bar chart --
+    ax_bar = fig.add_subplot(gs[:, 2])
+    labels   = [default_result["label"], tuned_result["label"]]
+    mae_vals = [default_result["mae"],   tuned_result["mae"]]
+    rmse_vals= [default_result["rmse"],  tuned_result["rmse"]]
+
+    x = np.arange(len(labels))
+    width = 0.35
+    b1 = ax_bar.bar(x - width/2, mae_vals,  width, label="MAE",  color="#4C72B0", alpha=0.85)
+    b2 = ax_bar.bar(x + width/2, rmse_vals, width, label="RMSE", color="#C44E52", alpha=0.85)
+
+    ax_bar.bar_label(b1, fmt="%.3f", fontsize=9, padding=3)
+    ax_bar.bar_label(b2, fmt="%.3f", fontsize=9, padding=3)
+    ax_bar.set_xticks(x); ax_bar.set_xticklabels(labels, fontsize=10)
+    ax_bar.set_ylabel("Error (t/ha)", fontsize=10)
+    ax_bar.set_title("MAE & RMSE Comparison", fontsize=12, fontweight="bold")
+    ax_bar.legend(fontsize=10)
+    ax_bar.grid(True, axis="y", linestyle="--", alpha=0.35)
+    ax_bar.set_ylim(0, max(rmse_vals) * 1.3)
+
+    plt.tight_layout()
+    path = RESULTS_DIR / "svr_default_vs_tuned.png"
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"  📊  Comparison plot saved → '{path}'")
+    plt.close()
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 6 — UPDATED RESULTS TABLE
+# ──────────────────────────────────────────────────────────
+
+def print_results_table(
+    default_result: dict,
+    tuned_result: dict,
+    all_kernel_results: dict,
+) -> None:
+    """
+    Print the full updated comparison — all original kernels
+    plus Default RBF and Tuned RBF, ranked by RMSE.
+    """
+    _sec("STEP 6 — UPDATED FULL RESULTS TABLE")
+
+    rows = []
+
+    # Original kernel baselines (from svr_model.py run)
+    for name, res in all_kernel_results.items():
+        rows.append({
+            "Model"     : f"SVR — {name}",
+            "MAE (t/ha)": res["mae"],
+            "RMSE(t/ha)": res["rmse"],
+            "Note"      : "baseline",
+        })
+
+    # Tuned RBF (override the default RBF row)
+    rows.append({
+        "Model"     : "SVR — RBF (tuned)",
+        "MAE (t/ha)": tuned_result["mae"],
+        "RMSE(t/ha)": tuned_result["rmse"],
+        "Note"      : f"C={tuned_result['params'].get('C')}  "
+                      f"γ={tuned_result['params'].get('gamma')}  "
+                      f"ε={tuned_result['params'].get('epsilon')}",
+    })
+
+    df = pd.DataFrame(rows).sort_values("RMSE(t/ha)")
+    df["Rank"] = range(1, len(df) + 1)
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    df["Rank"] = df["Rank"].map(lambda r: f"{medals.get(r, '')}  #{r}")
+
+    print(df.to_string(index=False))
+
+    best = df.iloc[0]
+    mae_improvement  = default_result["mae"]  - tuned_result["mae"]
+    rmse_improvement = default_result["rmse"] - tuned_result["rmse"]
+
+    print(f"\n  🏆  Best overall model: {best['Model']}")
+    print(f"\n  📈  Improvement over default RBF:")
+    print(f"       MAE  reduced by {mae_improvement:+.4f} t/ha  "
+          f"({100*mae_improvement/default_result['mae']:.1f}%)")
+    print(f"       RMSE reduced by {rmse_improvement:+.4f} t/ha  "
+          f"({100*rmse_improvement/default_result['rmse']:.1f}%)")
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 7 — THEORY EXPLANATION
+# ──────────────────────────────────────────────────────────
+
+def print_theory() -> None:
+    _sec("STEP 7 — THEORY: GridSearchCV + Bias-Variance Tradeoff")
+
+    text = textwrap.dedent("""
+  ┌────────────────────────────────────────────────────────────┐
+  │ 1. WHAT GridSearchCV DOES MATHEMATICALLY                   │
+  └────────────────────────────────────────────────────────────┘
+  Goal: find θ* = argmin_{θ ∈ Θ} E[L(y, f_θ(x))]
+
+  Since E[L] is unknowable, we estimate it using k-fold CV:
+
+    CV_score(θ) = (1/k) × Σᵢ L(y_val_i, f_θ(x_val_i))
+
+  GridSearchCV enumerates every θ in the Cartesian product
+  of PARAM_GRID (exhaustive search) and picks:
+
+    θ* = argmin_θ CV_score(θ)
+
+  In this run:   |Θ| = 3 × 3 × 3 = 27 candidates
+                 Total model fits = 27 × 3 = 81
+
+  ┌────────────────────────────────────────────────────────────┐
+  │ 2. WHY CROSS-VALIDATION IS NEEDED                          │
+  └────────────────────────────────────────────────────────────┘
+  Evaluating on the same data used to choose θ is optimistic:
+
+    • A single held-out set is a RANDOM split — its score has
+      high variance depending on which samples land in it.
+    • k-fold CV uses EVERY sample for validation exactly once,
+      giving a lower-variance, nearly unbiased estimate of
+      generalisation error.
+    • Without CV, we would over-select hyperparameters that
+      happen to suit the particular random test split →
+      the tuned model may perform worse on real new data.
+
+  ┌────────────────────────────────────────────────────────────┐
+  │ 3. BIAS-VARIANCE TRADEOFF IN HYPERPARAMETER TUNING         │
+  └────────────────────────────────────────────────────────────┘
+  For SVR the key knobs are C and epsilon (ε):
+
+  ┌────────┬────────────────┬────────────────┬───────────────┐
+  │ Param  │ Low value      │ High value     │ Effect        │
+  ├────────┼────────────────┼────────────────┼───────────────┤
+  │ C      │ Wide margin,   │ Narrow margin, │ Low C → high  │
+  │        │ many violations│ few violations │ bias / under- │
+  │        │ allowed        │ (fits noise)   │ fit risk      │
+  ├────────┼────────────────┼────────────────┼───────────────┤
+  │ ε      │ Tight tube,    │ Wide tube,     │ Large ε →     │
+  │        │ more support   │ fewer SVs,     │ smoother fit, │
+  │        │ vectors        │ simpler model  │ higher bias   │
+  ├────────┼────────────────┼────────────────┼───────────────┤
+  │ gamma  │ Broad Gaussian │ Narrow Gaussian│ High γ →      │
+  │ (RBF)  │ → smoother     │ → wiggly fit   │ overfit risk  │
+  └────────┴────────────────┴────────────────┴───────────────┘
+
+  The sweet spot (θ*) minimises the total error:
+
+     Total Error = Bias² + Variance + Irreducible Noise
+
+  GridSearchCV finds this empirically via CV without assuming
+  any parametric form for the error surface.
+
+  ┌────────────────────────────────────────────────────────────┐
+  │ 4. DATA LEAKAGE PREVENTION                                 │
+  └────────────────────────────────────────────────────────────┘
+  The StandardScaler is INSIDE the Pipeline:
+
+    Pipeline(scaler → SVR)
+
+  GridSearchCV calls pipeline.fit(X_train_fold) for each fold,
+  so the scaler ONLY sees training fold data, never the
+  validation fold. This is critical — fitting the scaler on
+  the entire dataset before CV would leak test distribution
+  information and make CV scores over-optimistic.
+    """)
+    print(text)
+
+
+# ──────────────────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────────────────
+
+def main() -> None:
+    print("\n" + SEP)
+    print("  🌱  PRECISION AGRICULTURE — SVR HYPERPARAMETER TUNING")
+    print(SEP)
+
+    np.random.seed(RANDOM_STATE)
+
+    # ── Shared data prep (reuse functions from svr_model) ─
+    df              = load_data(DATA_PATH)
+    df_enc, _       = encode_categoricals(df, CAT_COLS)
+    X, y            = split_features_target(df_enc, TARGET_COL, DROP_COLS)
+    X_train, X_test, y_train, y_test = split_and_subsample(
+        X, y, SUBSAMPLE_N, TEST_SIZE, RANDOM_STATE
+    )
+
+    # ── Re-run all original kernels for comparison table ──
+    from svr_model import train_all_kernels
+    all_kernel_results = train_all_kernels(
+        X_train, X_test, y_train, y_test, SVR_CONFIGS
+    )
+
+    # ── Step 1: Default RBF baseline ──────────────────────
+    default_result = train_default_rbf(X_train, X_test, y_train, y_test)
+
+    # ── Step 2: GridSearchCV ──────────────────────────────
+    grid_search = run_grid_search(
+        X_train, y_train,
+        param_grid       = PARAM_GRID,
+        cv               = CV_FOLDS,
+        n_jobs           = N_JOBS,
+        tuning_subsample = TUNING_SUBSAMPLE,
+        random_state     = RANDOM_STATE,
+    )
+
+    # ── Step 3: Retrain with best params ──────────────────
+    tuned_result = retrain_tuned_rbf(
+        grid_search, X_train, X_test, y_train, y_test
+    )
+
+    # ── Step 4: CV heatmap ────────────────────────────────
+    plot_cv_heatmap(grid_search)
+
+    # ── Step 5: Comparison plot ───────────────────────────
+    plot_comparison(default_result, tuned_result, y_test, PLOT_N)
+
+    # ── Step 6: Updated results table ────────────────────
+    print_results_table(default_result, tuned_result, all_kernel_results)
+
+    # ── Step 7: Theory ────────────────────────────────────
+    print_theory()
+
+    print(f"\n{SEP}")
+    print("  ✅  TUNING PIPELINE COMPLETE")
+    print(f"{SEP}\n")
+
+
+if __name__ == "__main__":
+    main()
