@@ -45,3 +45,49 @@ ML-agriculture/
 ```
 
 ---
+
+## 📦 Datasets Used
+
+| File | Description | Rows |
+|------|-------------|------|
+| `yield.csv` | Crop yield (hg/ha) by country, year, crop | 56,717 |
+| `rainfall.csv` | Annual rainfall (mm) by country, year | 6,727 |
+| `temp.csv` | Average temperature (°C) by country, year | 71,311 |
+| `pesticides.csv` | Pesticide usage (tonnes) by country, year | 4,349 |
+
+**Merged output:** `project/data/tabular/final_dataset.csv`  
+→ 56,717 rows × 7 columns, zero missing values after group-median imputation.
+
+---
+
+## ⚙️ Pipeline Steps
+
+### 1. Data Merging (`src/merge_datasets.py`)
+- Auto-detects CSV files and common join keys
+- LEFT JOIN on `(country, year)` — yield as base table
+- Group-median imputation for missing climate values
+- Unit conversion: `hg/ha → tonnes/ha`
+
+### 2. SVR Model (`src/svr_model.py`)
+- Label-encodes `country` (212 classes) and `crop` (10 classes)
+- sklearn `Pipeline`: `StandardScaler → SVR`
+- Compares three kernels:
+
+| Kernel | MAE (t/ha) | RMSE (t/ha) |
+|--------|-----------|------------|
+| RBF | **3.567** | **6.009** |
+| Linear | 4.653 | 7.683 |
+| Polynomial | 54.743 | 56.179 |
+
+### 3. Hyperparameter Tuning (`src/svr_tuning.py`)
+- `GridSearchCV` over `C × gamma × epsilon` (27 combos × 3 folds = **81 fits**)
+- Best params: `C=100, gamma='scale', epsilon=1.0`
+
+| Model | MAE (t/ha) | RMSE (t/ha) |
+|-------|-----------|------------|
+| RBF (default) | 3.567 | 6.009 |
+| **RBF (tuned)** | **3.476** | **5.728** |
+
+**Improvement: RMSE ↓ 4.7%**
+
+---
