@@ -91,3 +91,50 @@ ML-agriculture/
 **Improvement: RMSE ↓ 4.7%**
 
 ---
+
+## 🚀 How to Run
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/amathziah/AgriVision-Yield-Prediction.git
+cd AgriVision-Yield-Prediction
+
+# 2. Install dependencies
+pip install pandas numpy scikit-learn matplotlib
+
+# 3. Merge raw CSVs into final dataset
+python src/merge_datasets.py
+
+# 4. Train and evaluate SVR kernels
+python src/svr_model.py
+
+# 5. Run hyperparameter tuning
+python src/svr_tuning.py
+```
+
+---
+
+## 📊 Results
+
+All plots are saved to `project/results/`:
+
+| File | Description |
+|------|-------------|
+| `svr_predicted_vs_actual.png` | Predicted vs Actual for all 3 kernels |
+| `svr_gridsearch_heatmap.png` | CV RMSE heatmap across C × gamma |
+| `svr_default_vs_tuned.png` | Default vs Tuned RBF comparison |
+
+---
+
+## 🔮 Planned Next Steps
+
+- [ ] CNN pipeline for satellite image classification
+- [ ] Hybrid fusion model (tabular SVR + CNN embeddings)
+- [ ] Model serialisation & prediction API
+- [ ] Streamlit dashboard
+
+---
+
+## 👤 Author
+
+**Amathziah** — [GitHub](https://github.com/amathziah)
