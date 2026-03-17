@@ -348,3 +348,178 @@ def plot_predicted_vs_actual(
         )
         ax.legend(fontsize=8)
         ax.grid(True, linestyle="--", alpha=0.4)
+
+    # 4th panel: Residuals for best kernel (RBF)
+    ax_res = axes[3]
+    best_name = min(results, key=lambda k: results[k]["rmse"])
+    best_pred = results[best_name]["y_pred"][idx]
+    residuals  = y_sample - best_pred
+
+    ax_res.scatter(best_pred, residuals,
+                   alpha=0.45, s=20, color="#8172B2", edgecolors="none")
+    ax_res.axhline(0, color="k", linewidth=1.2, linestyle="--")
+    ax_res.set_xlabel("Fitted values", fontsize=10)
+    ax_res.set_ylabel("Residuals", fontsize=10)
+    ax_res.set_title(
+        f"Residuals vs Fitted  [{best_name} Kernel — best RMSE]",
+        fontsize=11, fontweight="bold"
+    )
+    ax_res.grid(True, linestyle="--", alpha=0.4)
+
+    plt.tight_layout()
+    save_path = RESULTS_DIR / "svr_predicted_vs_actual.png"
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    print(f"\n  📊  Plot saved → '{save_path}'")
+    plt.close()
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 7 — KERNEL COMPARISON TABLE
+# ──────────────────────────────────────────────────────────
+
+def print_comparison_table(results: dict[str, dict]) -> None:
+    _sec("STEP 7 — KERNEL COMPARISON TABLE")
+
+    rows = []
+    for name, res in results.items():
+        rows.append({
+            "Kernel"     : name,
+            "MAE  (t/ha)": f"{res['mae']:.4f}",
+            "RMSE (t/ha)": f"{res['rmse']:.4f}",
+            "Rank (RMSE)": "",
+        })
+
+    # Rank by RMSE
+    sorted_names = sorted(results, key=lambda k: results[k]["rmse"])
+    rank_map = {name: i + 1 for i, name in enumerate(sorted_names)}
+    medals   = {1: "🥇", 2: "🥈", 3: "🥉"}
+    for row in rows:
+        r = rank_map[row["Kernel"]]
+        row["Rank (RMSE)"] = f"{medals.get(r, r)}  #{r}"
+
+    df_table = pd.DataFrame(rows)
+    print(df_table.to_string(index=False))
+
+    best = sorted_names[0]
+    print(f"\n  🏆  Best kernel: {best} "
+          f"(RMSE = {results[best]['rmse']:.4f} t/ha, "
+          f"MAE = {results[best]['mae']:.4f} t/ha)")
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 8 — THEORY EXPLANATION
+# ──────────────────────────────────────────────────────────
+
+def print_explanation() -> None:
+    _sec("STEP 8 — THEORY: SVR INTERNALS")
+
+    text = textwrap.dedent("""
+  ┌──────────────────────────────────────────────────────────┐
+  │ 1. THE KERNEL TRICK (Mathematical Intuition)             │
+  └──────────────────────────────────────────────────────────┘
+  SVR finds a hyperplane in feature space that fits the data
+  within an ε-tube. For non-linear data, instead of computing
+  explicit feature maps φ(x), the kernel trick replaces the
+  dot product with a kernel function K(xᵢ, xⱼ) = φ(xᵢ)·φ(xⱼ).
+
+  This allows SVR to operate implicitly in a very high-
+  (or even infinite-) dimensional space without ever computing
+  the mapping φ explicitly — massive computational savings.
+
+  ┌──────────────────────────────────────────────────────────┐
+  │ 2. KERNEL COMPARISON                                     │
+  └──────────────────────────────────────────────────────────┘
+  ┌─────────────┬─────────────────────────┬─────────────────┐
+  │ Kernel      │ K(xᵢ, xⱼ)              │ Best for        │
+  ├─────────────┼─────────────────────────┼─────────────────┤
+  │ Linear      │ xᵢ · xⱼ                │ Linearly sepa-  │
+  │             │                         │ rable, high-dim │
+  │             │                         │ sparse data     │
+  ├─────────────┼─────────────────────────┼─────────────────┤
+  │ RBF         │ exp(−γ‖xᵢ−xⱼ‖²)        │ General-purpose │
+  │ (Gaussian)  │                         │ unknown shape;  │
+  │             │                         │ typically best  │
+  ├─────────────┼─────────────────────────┼─────────────────┤
+  │ Polynomial  │ (γ xᵢ·xⱼ + r)^d        │ Interaction     │
+  │             │                         │ terms; NLP-like │
+  │             │                         │ features        │
+  └─────────────┴─────────────────────────┴─────────────────┘
+  γ = gamma,  r = coef0,  d = degree
+
+  ┌──────────────────────────────────────────────────────────┐
+  │ 3. ROLE OF HYPERPARAMETERS C AND ε (epsilon)             │
+  └──────────────────────────────────────────────────────────┘
+  C — Regularisation strength
+    • Low C  → wide margin, more violations allowed → underfitting risk
+    • High C → narrow margin, fewer violations → overfitting risk
+    • Think of C as the "penalty per violation" of the ε-tube
+
+  ε (epsilon) — Tube half-width
+    • Predictions inside ±ε of true value incur ZERO loss
+    • Controls how sensitive the model is to small errors
+    • Large ε → simpler model; small ε → tighter fit, more support vectors
+    • Rule of thumb: set ε ≈ 10% of the target std deviation
+
+  ┌──────────────────────────────────────────────────────────┐
+  │ 4. WHY SCALING IS MANDATORY FOR SVR                      │
+  └──────────────────────────────────────────────────────────┘
+  SVR computes K(xᵢ, xⱼ) which involves distances or dot-products.
+
+  Example without scaling:
+    rainfall ≈ 1200  |  temperature ≈ 21  |  pesticides ≈ 5000
+
+  Without scaling, K is dominated by pesticides (5000² term)
+  while temperature contributes almost nothing (21²).
+
+  StandardScaler transforms each feature xₖ → (xₖ − μₖ) / σₖ
+  → all features have mean=0, variance=1 → equal kernel influence.
+    """)
+    print(text)
+
+
+# ──────────────────────────────────────────────────────────
+# MAIN ORCHESTRATOR
+# ──────────────────────────────────────────────────────────
+
+def main() -> None:
+    print("\n" + SEP)
+    print("  🌱  PRECISION AGRICULTURE — SVR MULTI-KERNEL PIPELINE")
+    print(SEP)
+
+    np.random.seed(RANDOM_STATE)
+
+    # 1. Load
+    df = load_data(DATA_PATH)
+
+    # 2. Encode categoricals
+    df_enc, encoders = encode_categoricals(df, CAT_COLS)
+
+    # 3. Split features / target
+    X, y = split_features_target(df_enc, TARGET_COL, DROP_COLS)
+
+    # 4. Train / test split + subsample
+    X_train, X_test, y_train, y_test = split_and_subsample(
+        X, y, SUBSAMPLE_N, TEST_SIZE, RANDOM_STATE
+    )
+
+    # 5. Train all kernels
+    results = train_all_kernels(
+        X_train, X_test, y_train, y_test, SVR_CONFIGS
+    )
+
+    # 6. Plot
+    plot_predicted_vs_actual(results, y_test, PLOT_N)
+
+    # 7. Comparison table
+    print_comparison_table(results)
+
+    # 8. Theory explanation
+    print_explanation()
+
+    print(f"\n{SEP}")
+    print("  ✅  SVR PIPELINE COMPLETE")
+    print(f"{SEP}\n")
+
+
+if __name__ == "__main__":
+    main()
