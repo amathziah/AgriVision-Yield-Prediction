@@ -1,10 +1,15 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://localhost:5001';
 
 export const predictYield = async (data) => {
   try {
-    const response = await axios.post(`${API_URL}/predict`, data);
+    const config = {
+      headers: {
+        'Content-Type': data instanceof FormData ? 'multipart/form-data' : 'application/json',
+      },
+    };
+    const response = await axios.post(`${API_URL}/predict`, data, config);
     return response.data;
   } catch (error) {
     if (error.response) {

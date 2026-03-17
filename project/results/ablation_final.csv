@@ -1,0 +1,4 @@
+Model,MAE,RMSE
+SVR Only,3.476,5.728
+CNN Only,0.781,0.977
+Hybrid Fusion,2.457,4.022

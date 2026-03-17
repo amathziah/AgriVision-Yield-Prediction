@@ -33,6 +33,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.svm import SVR
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import Pipeline
+import joblib
 
 warnings.filterwarnings("ignore")
 
@@ -581,7 +582,7 @@ def main() -> None:
 
     # ── Shared data prep (reuse functions from svr_model) ─
     df              = load_data(DATA_PATH)
-    df_enc, _       = encode_categoricals(df, CAT_COLS)
+    df_enc, encoders = encode_categoricals(df, CAT_COLS)
     X, y            = split_features_target(df_enc, TARGET_COL, DROP_COLS)
     X_train, X_test, y_train, y_test = split_and_subsample(
         X, y, SUBSAMPLE_N, TEST_SIZE, RANDOM_STATE
@@ -622,6 +623,20 @@ def main() -> None:
 
     # ── Step 7: Theory ────────────────────────────────────
     print_theory()
+
+    # ── Step 8: Export Model & Encoders ────────────────
+    _sec("STEP 8 — EXPORTING TUNED MODEL & ENCODERS")
+    model_path = Path("project/models/best_svr_model.pkl")
+    encoder_path = Path("project/models/encoders.pkl")
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save the pipeline
+    joblib.dump(tuned_result["pipeline"], model_path)
+    
+    # Save the encoders
+    joblib.dump(encoders, encoder_path)
+    print(f"  💾  Best model saved to → '{model_path}'")
+    print(f"  💾  Encoders saved to   → '{encoder_path}'")
 
     print(f"\n{SEP}")
     print("  ✅  TUNING PIPELINE COMPLETE")

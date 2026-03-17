@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lightbulb, TrendingUp, Droplets, ThermometerSun } from 'lucide-react';
+import { Lightbulb, TrendingUp, Droplets, ThermometerSun, Activity } from 'lucide-react';
 
 const InsightsPanel = ({ formData, predictionResult }) => {
 
@@ -22,7 +22,10 @@ const InsightsPanel = ({ formData, predictionResult }) => {
       } else if (lower.includes('temp') || lower.includes('heat')) {
         icon = ThermometerSun;
         color = "text-rose-400";
-      } else if (lower.includes('yield') || lower.includes('improve')) {
+      } else if (lower.includes('hybrid') || lower.includes('fusion') || lower.includes('model')) {
+        icon = Activity;
+        color = "text-purple-400";
+      } else if (lower.includes('yield') || lower.includes('improve') || lower.includes('potential')) {
         icon = TrendingUp;
         color = "text-teal-400";
       }

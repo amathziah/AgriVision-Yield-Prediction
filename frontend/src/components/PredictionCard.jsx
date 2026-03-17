@@ -15,7 +15,7 @@ const PredictionCard = ({ predictionResult, isLoading }) => {
              <div className="w-20 h-20 border-4 border-emerald-500/20 rounded-full"></div>
              <div className="w-20 h-20 border-4 border-emerald-400 rounded-full border-t-transparent animate-spin absolute top-0 left-0"></div>
            </div>
-           <p className="text-emerald-300 font-medium animate-pulse">Running SVR Pipeline...</p>
+           <p className="text-emerald-300 font-medium animate-pulse">Quantifying Multi-Modal Signals...</p>
         </div>
       ) : predictionResult ? (
         <div className="z-10 text-center w-full animate-in fade-in slide-in-from-bottom-4 duration-700">

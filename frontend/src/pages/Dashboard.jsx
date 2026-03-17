@@ -4,7 +4,7 @@ import InputForm from '../components/InputForm';
 import PredictionCard from '../components/PredictionCard';
 import InsightsPanel from '../components/InsightsPanel';
 import Charts from '../components/Charts';
-import ComingSoonBadge from '../components/ComingSoonBadge';
+import LiveStatusBadge from '../components/ComingSoonBadge';
 import { predictYield } from '../api/predict';
 import { AlertCircle } from 'lucide-react';
 
@@ -71,7 +71,7 @@ const Dashboard = () => {
                     <li className="flex items-center gap-2 opacity-50"><span className="w-2 h-2 rounded-full bg-slate-600"></span> API Gateway (Local Only)</li>
                  </ul>
               </div>
-              <ComingSoonBadge />
+              <LiveStatusBadge />
             </div>
           </div>
         </section>

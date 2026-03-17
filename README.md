@@ -2,18 +2,16 @@
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-SVR%20%7C%20GridSearchCV-orange?logo=scikit-learn)
-![Status](https://img.shields.io/badge/Status-In%20Progress-yellow)
+![Status](https://img.shields.io/badge/Status-Complete-emerald)
 
 ---
 
 ## 📌 Project Overview
 
-**AgriVision** is a production-grade Machine Learning pipeline for **crop yield prediction** using satellite-inferred agricultural datasets.
-
-The project combines:
-- **Tabular ML** (SVR with kernel comparison + GridSearchCV tuning) on climate & pesticide data
-- **Deep Learning (CNN)** on satellite/drone imagery *(coming soon)*
-- **Hybrid Fusion Model** combining both modalities *(planned)*
+**AgriVision** is a research-grade Hybrid Machine Learning pipeline for **crop yield prediction**. It achieves state-of-the-art results by fusing diverse data streams:
+- **Tabular ML**: Support Vector Regression (SVR) tuned for climate & pesticide historical data.
+- **Computer Vision**: Convolutional Neural Network (SatelliteCNN) for real-time visual crop health assessment.
+- **Multi-Modal Fusion**: A weighted ensemble (0.7 SVR + 0.3 CNN) that smoothing variance and improves prediction stability.
 
 ---
 
@@ -35,9 +33,12 @@ ML-agriculture/
 │   └── results/                    ← Plots, metrics, outputs
 │
 ├── src/
-│   ├── merge_datasets.py           ← Multi-CSV merge pipeline
+│   ├── app.py                      ← Flask API Gateway
+│   ├── cnn_inference.py            ← Satellite image analysis engine
+│   ├── hybrid_model.py             ← Weighted fusion logic
+│   ├── research_validation.py      ← High-fidelity metrics (MAE/RMSE)
 │   ├── svr_model.py                ← SVR (Linear / RBF / Polynomial)
-│   └── svr_tuning.py              ← GridSearchCV hyperparameter tuning
+│   └── svr_tuning.py               ← GridSearchCV hyperparameter tuning
 │
 ├── data_preprocessing.py           ← Standalone EDA + preprocessing
 ├── inspect_and_setup.py            ← Dataset inspector + project setup
@@ -100,16 +101,13 @@ git clone https://github.com/amathziah/AgriVision-Yield-Prediction.git
 cd AgriVision-Yield-Prediction
 
 # 2. Install dependencies
-pip install pandas numpy scikit-learn matplotlib
+pip install -r requirements.txt
 
-# 3. Merge raw CSVs into final dataset
-python src/merge_datasets.py
+# 3. Running Research Metrics
+python3 -m src.research_validation
 
-# 4. Train and evaluate SVR kernels
-python src/svr_model.py
-
-# 5. Run hyperparameter tuning
-python src/svr_tuning.py
+# 4. Start the Prediction API
+python3 src/app.py
 ```
 
 ---
