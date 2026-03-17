@@ -335,3 +335,174 @@ def post_merge_clean(df: pd.DataFrame) -> pd.DataFrame:
         "avg_temp",
         "pesticides_tonnes",
     ]
+
+    def _group_median_fill(series: pd.Series) -> pd.Series:
+        """Coerce to float, then fill NaN with the group median."""
+        s = pd.to_numeric(series, errors="coerce")
+        return s.fillna(s.median())
+
+    for col in numeric_fill_cols:
+        if col not in df.columns:
+            continue
+        # Coerce the whole column to float FIRST (handles string leftovers)
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+        # Group-median fill: more ecologically meaningful than global median
+        df[col] = df.groupby("crop")[col].transform(_group_median_fill)
+        # Fallback: global median for crops whose entire group is NaN
+        df[col] = df[col].fillna(df[col].median())
+
+    # Drop rows where the TARGET is still NaN
+    before = len(df)
+    df.dropna(subset=["yield_hg_per_ha"], inplace=True)
+    dropped = before - len(df)
+    if dropped:
+        print(f"  🗑️  Dropped {dropped} rows with missing target (yield_hg_per_ha).")
+
+    _missing_report(df, "merged (after clean)")
+    return df
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 6 — FINAL CHECKS & SAVE
+# ──────────────────────────────────────────────────────────
+
+def finalise_and_save(df: pd.DataFrame, output_path: Path) -> pd.DataFrame:
+    """
+    Enforce correct dtypes, reset the index, and save the ML-ready CSV.
+    """
+    _section("STEP 6 — FINAL DATASET & SAVE")
+
+    # ── Dtype enforcement ─────────────────────────────────
+    df["year"]    = df["year"].astype(int)
+    df["country"] = df["country"].astype(str).str.strip().str.title()
+    df["crop"]    = df["crop"].astype(str).str.strip().str.title()
+
+    # Convert yield from hg/ha → tonnes/ha for human readability
+    # 1 hg/ha = 0.0001 t/ha
+    df["yield_tonnes_per_ha"] = (df["yield_hg_per_ha"] * 0.0001).round(4)
+    df.drop(columns=["yield_hg_per_ha"], inplace=True)
+
+    # ── Reset index ───────────────────────────────────────
+    df.reset_index(drop=True, inplace=True)
+
+    # ── Summary of final dataset ──────────────────────────
+    print(f"\n  Final shape       : {df.shape[0]} rows × {df.shape[1]} columns")
+    print(f"  Columns           : {list(df.columns)}")
+    print(f"  Year range        : {df['year'].min()} – {df['year'].max()}")
+    print(f"  Unique countries  : {df['country'].nunique()}")
+    print(f"  Unique crops      : {df['crop'].nunique()}")
+    print(f"\n  Feature summary:")
+    print(df.describe(include="all").round(3).to_string())
+
+    print(f"\n  First 5 rows of final dataset:")
+    print(df.head().to_string(index=False))
+
+    # ── Save ──────────────────────────────────────────────
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    size_mb = output_path.stat().st_size / 1_048_576
+    print(f"\n  💾  Saved → '{output_path}'  [{size_mb:.2f} MB]")
+
+    return df
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 7 — EXPLANATION (printed to console)
+# ──────────────────────────────────────────────────────────
+
+def print_explanation() -> None:
+    _section("STEP 7 — ARCHITECTURE EXPLANATION")
+    explanation = textwrap.dedent("""
+  WHY MERGING IS IMPORTANT
+  ─────────────────────────
+  Each raw CSV captures only one dimension of the agricultural
+  picture.  In isolation:
+
+    • yield.csv       → tells us WHAT was grown and HOW MUCH
+    • rainfall.csv    → tells us HOW MUCH water fell
+    • temp.csv        → tells us HOW HOT it was
+    • pesticides.csv  → tells us WHAT was applied to the soil
+
+  A model trained on yield alone has no explanatory power.
+  Once merged, every row says: "In country X, year Y, crop C
+  grew Z tonnes/ha given R mm rain, T °C and P tonnes pesticide."
+  This is the minimal feature set for a supervised regressor.
+
+  JOIN TYPE USED: LEFT JOIN (yield as base table)
+  ────────────────────────────────────────────────
+  yield.csv is the PRIMARY table because it defines the
+  observation unit: (country, year, crop).
+
+  Climate / input tables are SECONDARY — they add context.
+  A LEFT JOIN ensures:
+
+    ✅  All yield observations are retained
+    ✅  Missing climate context → NaN (handled by imputation)
+    ❌  No synthetic rows are created
+
+  RISKS OF WRONG JOIN TYPE
+  ─────────────────────────
+  ┌─────────────┬──────────────────────────────────────────┐
+  │ INNER JOIN  │ Drops any yield row without a matching   │
+  │             │ climate record. Creates survivorship bias │
+  │             │ (only well-documented countries survive). │
+  ├─────────────┼──────────────────────────────────────────┤
+  │ RIGHT JOIN  │ Keeps ALL climate rows even if there is  │
+  │             │ no yield observation — floods the dataset │
+  │             │ with meaningless NaN targets.             │
+  ├─────────────┼──────────────────────────────────────────┤
+  │ OUTER JOIN  │ Worst of both worlds. Maximises row count │
+  │             │ but introduces noise and NaN targets      │
+  │             │ everywhere.                               │
+  ├─────────────┼──────────────────────────────────────────┤
+  │ LEFT JOIN ✅│ Keeps yield as ground truth; fills missing│
+  │             │ climate values via group-median imputation.│
+  └─────────────┴──────────────────────────────────────────┘
+
+  POST-MERGE IMPUTATION CHOICE
+  ─────────────────────────────
+  Missing values are filled with the MEDIAN grouped by CROP TYPE
+  rather than a global statistic because:
+    • Rice needs ~1200 mm rain; wheat needs ~450 mm.
+    • A global median (~700 mm) would severely mismatch both.
+    • Crop-group median respects biological and climatic reality.
+    """)
+    print(explanation)
+
+
+# ──────────────────────────────────────────────────────────
+# MAIN ORCHESTRATOR
+# ──────────────────────────────────────────────────────────
+
+def main() -> pd.DataFrame:
+    print("\n" + SEP)
+    print("  🌱  PRECISION AGRICULTURE — MULTI-CSV MERGE PIPELINE")
+    print(SEP)
+
+    # 1. Load
+    frames = load_all(FILE_PATHS)
+
+    # 2. Inspect keys
+    inspect_keys(frames)
+
+    # 3+4. Clean & merge
+    merged = merge_all(frames)
+
+    # 5. Post-merge cleaning
+    cleaned = post_merge_clean(merged)
+
+    # 6. Finalise & save
+    final_df = finalise_and_save(cleaned, OUTPUT_PATH)
+
+    # 7. Explanation
+    print_explanation()
+
+    print(f"\n{SEP}")
+    print("  ✅  MERGE PIPELINE COMPLETE")
+    print(f"{SEP}\n")
+
+    return final_df
+
+
+if __name__ == "__main__":
+    df = main()
