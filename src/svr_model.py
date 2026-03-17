@@ -173,3 +173,178 @@ def split_features_target(
 
     cols_to_drop = [c for c in drop_cols if c in df.columns]
     X = df.drop(columns=[target_col] + cols_to_drop)
+    y = df[target_col]
+
+    print(f"  Feature columns : {list(X.columns)}")
+    print(f"  Target column   : '{target_col}'")
+    print(f"  X shape         : {X.shape}")
+    print(f"  y shape         : {y.shape}")
+    print(f"  y range         : [{y.min():.3f}, {y.max():.3f}]  "
+          f"mean={y.mean():.3f}  std={y.std():.3f}")
+    return X, y
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 4 — TRAIN / TEST SPLIT  +  SUBSAMPLE
+# ──────────────────────────────────────────────────────────
+
+def split_and_subsample(
+    X: pd.DataFrame,
+    y: pd.Series,
+    subsample_n: int,
+    test_size: float,
+    random_state: int,
+) -> tuple:
+    """
+    Subsample the training set to keep SVR training tractable
+    (O(n²) time complexity), then split into train / test.
+
+    The test set uses the same random split of the full dataset
+    so evaluation reflects real generalisation performance.
+    """
+    _sec("STEP 4 — TRAIN / TEST SPLIT")
+
+    X_train_full, X_test, y_train_full, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state
+    )
+
+    # Subsample training rows for SVR scalability
+    n = min(subsample_n, len(X_train_full))
+    idx = np.random.RandomState(random_state).choice(
+        len(X_train_full), size=n, replace=False
+    )
+    X_train = X_train_full.iloc[idx]
+    y_train = y_train_full.iloc[idx]
+
+    print(f"  Full dataset    : {len(X):>6} samples")
+    print(f"  Train (sampled) : {len(X_train):>6} samples  "
+          f"({100*len(X_train)/len(X):.1f}% of total)")
+    print(f"  Test            : {len(X_test):>6} samples  "
+          f"({100*len(X_test)/len(X):.1f}% of total)")
+
+    return X_train, X_test, y_train, y_test
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 5 — TRAIN ALL SVR KERNELS
+# ──────────────────────────────────────────────────────────
+
+def train_all_kernels(
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.Series,
+    y_test: pd.Series,
+    svr_configs: dict[str, dict],
+) -> dict[str, dict]:
+    """
+    For each kernel:
+      1. Build an sklearn Pipeline: StandardScaler → SVR
+      2. Fit on (X_train, y_train)
+      3. Predict on X_test
+      4. Compute MAE and RMSE
+
+    WHY A PIPELINE?
+    ────────────────
+    StandardScaler must be fit ONLY on training data.
+    sklearn Pipeline ensures the scaler never sees test data,
+    preventing data leakage — a common source of over-optimistic metrics.
+
+    WHY SCALING IS CRITICAL FOR SVR
+    ────────────────────────────────
+    SVR's kernel functions compute distances or dot-products between
+    feature vectors.  Features on different scales (e.g. rainfall in
+    hundreds vs temperature in tens) cause the kernel to be dominated
+    by the larger-scaled feature, completely ignoring the smaller ones.
+    StandardScaler brings every feature to μ=0, σ=1 so each dimension
+    contributes equally to the kernel computation.
+
+    Returns
+    -------
+    results : dict  {kernel_name → {"pipeline", "y_pred", "mae", "rmse"}}
+    """
+    _sec("STEP 5 — TRAINING SVR KERNELS")
+
+    results: dict[str, dict] = {}
+
+    for name, params in svr_configs.items():
+        print(f"\n  🔧  [{name}] Kernel — params: {params}")
+
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("svr",    SVR(**params)),
+        ])
+
+        pipeline.fit(X_train, y_train)
+        y_pred = pipeline.predict(X_test)
+
+        mae  = mean_absolute_error(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+        results[name] = {
+            "pipeline": pipeline,
+            "y_pred"  : y_pred,
+            "mae"     : mae,
+            "rmse"    : rmse,
+        }
+
+        print(f"       MAE  = {mae:.4f} tonnes/ha")
+        print(f"       RMSE = {rmse:.4f} tonnes/ha")
+
+    return results
+
+
+# ──────────────────────────────────────────────────────────
+# STEP 6 — PLOT PREDICTED VS ACTUAL
+# ──────────────────────────────────────────────────────────
+
+def plot_predicted_vs_actual(
+    results: dict[str, dict],
+    y_test: pd.Series,
+    plot_n: int,
+) -> None:
+    """
+    Create a 2×2 grid:
+      • 3 scatter plots (one per kernel) — Predicted vs Actual
+      • 1 residual plot (RBF) — Residuals vs Fitted
+    """
+    _ensure_results()
+
+    n_kernels = len(results)
+    fig = plt.figure(figsize=(18, 12))
+    fig.suptitle(
+        "SVR — Predicted vs Actual Crop Yield  (tonnes/ha)",
+        fontsize=16, fontweight="bold", y=1.01
+    )
+    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.42, wspace=0.32)
+
+    axes = [fig.add_subplot(gs[i // 2, i % 2]) for i in range(4)]
+    colors = {"Linear": "#4C72B0", "RBF": "#55A868", "Polynomial": "#C44E52"}
+
+    idx = np.random.RandomState(42).choice(len(y_test), size=min(plot_n, len(y_test)), replace=False)
+    y_sample = np.array(y_test)[idx]
+
+    for ax_idx, (name, res) in enumerate(results.items()):
+        ax = axes[ax_idx]
+        y_pred_sample = res["y_pred"][idx]
+        color = colors.get(name, "#888888")
+
+        ax.scatter(y_sample, y_pred_sample,
+                   alpha=0.45, s=20, color=color, edgecolors="none")
+
+        # Perfect-prediction diagonal
+        lims = [
+            min(y_sample.min(), y_pred_sample.min()) - 0.5,
+            max(y_sample.max(), y_pred_sample.max()) + 0.5,
+        ]
+        ax.plot(lims, lims, "k--", linewidth=1.2, label="Perfect fit")
+
+        ax.set_xlim(lims); ax.set_ylim(lims)
+        ax.set_xlabel("Actual yield (t/ha)", fontsize=10)
+        ax.set_ylabel("Predicted yield (t/ha)", fontsize=10)
+        ax.set_title(
+            f"{name} Kernel\n"
+            f"MAE={res['mae']:.3f}  RMSE={res['rmse']:.3f}",
+            fontsize=11, fontweight="bold"
+        )
+        ax.legend(fontsize=8)
+        ax.grid(True, linestyle="--", alpha=0.4)
